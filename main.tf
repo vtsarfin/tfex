@@ -2,9 +2,14 @@ provider "aws" {
   region = "us-east-2"
 }
 variable "server_port" {
-    description = "server port for http heredoc"
-    type = number
-    default = 8080
+  description = "server port for http heredoc"
+  type        = number
+  default     = 8080
+}
+variable "ssh_port" {
+  description = "ssh port"
+  type        = number
+  default     = 22
 }
 
 #launch_configuration
@@ -13,13 +18,14 @@ resource "aws_launch_configuration" "example" {
   image_id        = "ami-0fb653ca2d3203ac1"
   instance_type   = "t2.micro"
   security_groups = [aws_security_group.instance.id]
+  key_name        = "id_rsa_aws_t1"
 
   user_data = <<-EOF
               #!/bin/bash
-              echo "Hello, World" > index.html
+              echo "E, Vadim, kak dela?" > index.html
               nohup busybox httpd -f -p ${var.server_port} &
               EOF
-# Required when using a launch configuration with an ASG.
+  # Required when using a launch configuration with an ASG.
   lifecycle {
     create_before_destroy = true
   }
@@ -38,16 +44,20 @@ data "aws_subnets" "default" {
 
 resource "aws_autoscaling_group" "example" {
   launch_configuration = aws_launch_configuration.example.name
-  min_size = 2
-  max_size = 3
-vpc_zone_identifier=data.aws_subnets.default.ids
-target_group_arns = [aws_lb_target_group.asg.arn]
-  health_check_type = "ELB"
-     tag {
+  min_size             = 2
+  max_size             = 3
+  vpc_zone_identifier  = data.aws_subnets.default.ids
+  target_group_arns    = [aws_lb_target_group.asg.arn]
+  health_check_type    = "ELB"
+  tag {
     key                 = "Name"
     value               = "terraform-asg-example"
     propagate_at_launch = true
   }
+  provisioner "local-exec" {
+    command = "aws ec2 describe-instances --filters Name=tag:Name,Values=terraform\\* --query 'Reservations[*].Instances[*].{\"private_ip\":PrivateIpAddress,\"public_ip\":PublicIpAddress}' >> my_info.txt"
+  }
+
 }
 
 resource "aws_security_group" "alb" {
@@ -70,7 +80,7 @@ resource "aws_lb" "example" {
   name               = "terraform-asg-example"
   load_balancer_type = "application"
   subnets            = data.aws_subnets.default.ids
-  security_groups = [aws_security_group.alb.id]
+  security_groups    = [aws_security_group.alb.id]
 }
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.example.arn
@@ -106,10 +116,6 @@ resource "aws_lb_target_group" "asg" {
     unhealthy_threshold = 2
   }
 }
-
-
-
-
 resource "aws_security_group" "instance" {
   name = "terraform-example-instance"
   ingress {
@@ -118,6 +124,13 @@ resource "aws_security_group" "instance" {
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
+  ingress {
+    from_port   = var.ssh_port
+    to_port     = var.ssh_port
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
 }
 resource "aws_lb_listener_rule" "asg" {
   listener_arn = aws_lb_listener.http.arn
@@ -138,3 +151,8 @@ output "alb_dns_name" {
   value       = aws_lb.example.dns_name
   description = "The domain name of the load balancer"
 }
+output "aws_autoscaling_group_name" {
+  value       = aws_autoscaling_group.example.name
+  description = "i try ===>>>"
+}
+
