@@ -1,26 +1,17 @@
 provider "aws" {
-  region = "us-east-2"
-}
-variable "server_port" {
-  description = "server port for http heredoc"
-  type        = number
-  default     = 8080
-}
-variable "ssh_port" {
-  description = "ssh port"
-  type        = number
-  default     = 22
+  #   region  = "us-east-2"
+  #profile = "test"
 }
 
 #launch_configuration
 
-resource "aws_launch_configuration" "example" {
-  image_id        = "ami-0fb653ca2d3203ac1"
-  instance_type   = "t2.micro"
+resource "aws_launch_configuration" "main" {
+  image_id        = "ami-0989fb15ce71ba39e"
+  instance_type   = "t3.micro"
   security_groups = [aws_security_group.instance.id]
-  key_name        = "id_rsa_aws_t1"
-
-  user_data = <<-EOF
+  key_name        = "vt_id_rsa_aws_t1"
+  name_prefix     = var.prefix_u
+  user_data       = <<-EOF
               #!/bin/bash
               echo "E, Vadim, kak dela?" > index.html
               nohup busybox httpd -f -p ${var.server_port} &
@@ -42,26 +33,27 @@ data "aws_subnets" "default" {
   }
 }
 
-resource "aws_autoscaling_group" "example" {
-  launch_configuration = aws_launch_configuration.example.name
+resource "aws_autoscaling_group" "main" {
+  launch_configuration = aws_launch_configuration.main.name
   min_size             = 2
   max_size             = 3
   vpc_zone_identifier  = data.aws_subnets.default.ids
   target_group_arns    = [aws_lb_target_group.asg.arn]
   health_check_type    = "ELB"
+  name_prefix          = var.prefix_u
   tag {
     key                 = "Name"
-    value               = "terraform-asg-example"
+    value               = var.prefix_u
     propagate_at_launch = true
   }
   provisioner "local-exec" {
-    command = "aws ec2 describe-instances --filters Name=tag:Name,Values=terraform\\* --query 'Reservations[*].Instances[*].{\"private_ip\":PrivateIpAddress,\"public_ip\":PublicIpAddress}' >> my_info.txt"
+    command = "aws ec2 describe-instances --filters Name=tag:Name,Values=${var.prefix_u}\\* --query 'Reservations[*].Instances[*].{\"private_ip\":PrivateIpAddress,\"public_ip\":PublicIpAddress}' > my_info.txt"
   }
 
 }
 
 resource "aws_security_group" "alb" {
-  name = "terraform-example-alb"
+  name = "${var.prefix_u}-asg"
   # Allow inbound HTTP requests
   ingress {
     from_port   = 80
@@ -76,14 +68,14 @@ resource "aws_security_group" "alb" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 }
-resource "aws_lb" "example" {
-  name               = "terraform-asg-example"
+resource "aws_lb" "main" {
+  name               = "${var.prefix_u}-alb"
   load_balancer_type = "application"
   subnets            = data.aws_subnets.default.ids
   security_groups    = [aws_security_group.alb.id]
 }
 resource "aws_lb_listener" "http" {
-  load_balancer_arn = aws_lb.example.arn
+  load_balancer_arn = aws_lb.main.arn
   port              = 80
   protocol          = "HTTP"
 
@@ -101,7 +93,7 @@ resource "aws_lb_listener" "http" {
 
 
 resource "aws_lb_target_group" "asg" {
-  name     = "terraform-asg-example"
+  name     = "${var.prefix_u}-asg"
   port     = var.server_port
   protocol = "HTTP"
   vpc_id   = data.aws_vpc.default.id
@@ -117,7 +109,7 @@ resource "aws_lb_target_group" "asg" {
   }
 }
 resource "aws_security_group" "instance" {
-  name = "terraform-example-instance"
+  name = "${var.prefix_u}-instance"
   ingress {
     from_port   = var.server_port
     to_port     = var.server_port
@@ -148,11 +140,11 @@ resource "aws_lb_listener_rule" "asg" {
   }
 }
 output "alb_dns_name" {
-  value       = aws_lb.example.dns_name
+  value       = aws_lb.main.dns_name
   description = "The domain name of the load balancer"
 }
 output "aws_autoscaling_group_name" {
-  value       = aws_autoscaling_group.example.name
+  value       = aws_autoscaling_group.main.name
   description = "i try ===>>>"
 }
 
