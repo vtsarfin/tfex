@@ -4,7 +4,11 @@ provider "aws" {
 }
 
 #launch_configuration
-
+locals {
+  azs      = slice(data.aws_availability_zones.available.names, 0, 3)
+  vpc_cidr = "10.0.0.0/16"
+}
+data "aws_availability_zones" "available" {}
 resource "aws_launch_configuration" "main" {
   image_id        = "ami-0989fb15ce71ba39e"
   instance_type   = "t3.micro"
@@ -21,7 +25,7 @@ resource "aws_launch_configuration" "main" {
     create_before_destroy = true
   }
 }
-
+/*
 data "aws_vpc" "default" {
   default = true
 }
@@ -32,12 +36,12 @@ data "aws_subnets" "default" {
     values = [data.aws_vpc.default.id]
   }
 }
-
+*/
 resource "aws_autoscaling_group" "main" {
   launch_configuration = aws_launch_configuration.main.name
-  min_size             = 2
-  max_size             = 3
-  vpc_zone_identifier  = data.aws_subnets.default.ids
+  min_size             = 1
+  max_size             = 2
+  vpc_zone_identifier  = module.vpc.private_subnets
   target_group_arns    = [aws_lb_target_group.asg.arn]
   health_check_type    = "ELB"
   name_prefix          = var.prefix_u
@@ -53,7 +57,8 @@ resource "aws_autoscaling_group" "main" {
 }
 
 resource "aws_security_group" "alb" {
-  name = "${var.prefix_u}-asg"
+  vpc_id = module.vpc.vpc_id
+  name   = "${var.prefix_u}-asg"
   # Allow inbound HTTP requests
   ingress {
     from_port   = 80
@@ -71,7 +76,7 @@ resource "aws_security_group" "alb" {
 resource "aws_lb" "main" {
   name               = "${var.prefix_u}-alb"
   load_balancer_type = "application"
-  subnets            = data.aws_subnets.default.ids
+  subnets            = module.vpc.public_subnets
   security_groups    = [aws_security_group.alb.id]
 }
 resource "aws_lb_listener" "http" {
@@ -96,7 +101,7 @@ resource "aws_lb_target_group" "asg" {
   name     = "${var.prefix_u}-asg"
   port     = var.server_port
   protocol = "HTTP"
-  vpc_id   = data.aws_vpc.default.id
+  vpc_id   = module.vpc.vpc_id
 
   health_check {
     path                = "/"
@@ -109,7 +114,8 @@ resource "aws_lb_target_group" "asg" {
   }
 }
 resource "aws_security_group" "instance" {
-  name = "${var.prefix_u}-instance"
+  vpc_id = module.vpc.vpc_id
+  name   = "${var.prefix_u}-instance"
   ingress {
     from_port   = var.server_port
     to_port     = var.server_port
@@ -145,6 +151,6 @@ output "alb_dns_name" {
 }
 output "aws_autoscaling_group_name" {
   value       = aws_autoscaling_group.main.name
-  description = "i try ===>>>"
+  description = "ASG name"
 }
 
